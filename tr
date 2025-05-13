@@ -1,0 +1,85 @@
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+using Tesseract;
+using Google.Cloud.Translation.V2;
+using System.Threading;
+
+namespace RealtimeScreenTranslator
+{
+    public partial class Form1 : Form
+    {
+        private bool isTranslating = false;
+        private TranslationClient translationClient;
+
+        public Form1()
+        {
+            InitializeComponent();
+            // Thay bằng API Key của bạn hoặc thiết lập biến môi trường GOOGLE_APPLICATION_CREDENTIALS
+            translationClient = TranslationClient.Create();
+        }
+
+        private void btnToggle_Click(object sender, EventArgs e)
+        {
+            isTranslating = !isTranslating;
+            btnToggle.Text = isTranslating ? "Stop Translation" : "Start Translation";
+
+            if (isTranslating)
+            {
+                Thread translationThread = new Thread(TranslateScreen);
+                translationThread.IsBackground = true;
+                translationThread.Start();
+            }
+        }
+
+        private void TranslateScreen()
+        {
+            using (var engine = new TesseractEngine(@"C:\Program Files\Tesseract-OCR\tessdata", "eng", EngineMode.Default))
+            {
+                while (isTranslating)
+                {
+                    try
+                    {
+                        // Chụp màn hình
+                        using (Bitmap screenshot = new Bitmap(Screen.PrimaryScreen.Bounds.Width, Screen.PrimaryScreen.Bounds.Height))
+                        {
+                            using (Graphics graphics = Graphics.FromImage(screenshot))
+                            {
+                                graphics.CopyFromScreen(0, 0, 0, 0, screenshot.Size);
+                            }
+
+                            // Nhận diện văn bản
+                            using (var img = PixConverter.ToPix(screenshot))
+                            {
+                                using (var page = engine.Process(img))
+                                {
+                                    string originalText = page.GetText().Trim();
+                                    if (!string.IsNullOrEmpty(originalText))
+                                    {
+                                        // Cập nhật TextBox gốc
+                                        Invoke(new Action(() => textBoxOriginal.Text = originalText)));
+
+                                        // Dịch văn bản sang tiếng Việt
+                                        var translation = translationClient.TranslateText(originalText, "vi");
+                                        Invoke(new Action(() => textBoxTranslated.Text = translation.TranslatedText));
+                                    }
+                                    else
+                                    {
+                                        Invoke(new Action(() => textBoxOriginal.Text = "No text detected"));
+                                        Invoke(new Action(() => textBoxTranslated.Text = ""));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Invoke(new Action(() => textBoxOriginal.Text = $"Error: {ex.Message}"));
+                    }
+
+                    Thread.Sleep(1000); // Cập nhật mỗi giây
+                }
+            }
+        }
+    }
+}
